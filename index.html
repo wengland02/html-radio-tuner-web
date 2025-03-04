@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Radio Tuner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            background: #d2b48c;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .radio-container {
+            background: linear-gradient(145deg, #8b5a2b, #a0522d);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            width: 600px;
+            border: 5px solid #3c2f2f;
+        }
+
+        .display-panel {
+            background: #2f2f2f;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border: 2px solid #1a1a1a;
+        }
+
+        .frequency-display {
+            color: #ff4500;
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            background: #1a1a1a;
+            padding: 5px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+
+        .frequency-display:hover {
+            background: #333;
+        }
+
+        .station-info {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            align-items: center;
+        }
+
+        .station-name {
+            color: #fff;
+            font-size: 18px;
+            max-width: 70%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .station-select {
+            background: #1a1a1a;
+            color: #fff;
+            border: 1px solid #fff;
+            border-radius: 5px;
+            padding: 5px;
+            font-size: 16px;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        .metadata {
+            color: #fff;
+            font-size: 14px;
+            text-align: center;
+            margin-top: 10px;
+            font-style: italic;
+        }
+
+        .tuner {
+            position: relative;
+            height: 100px;
+            background: #4a2f1a;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 2px solid #3c2f2f;
+            overflow: hidden;
+        }
+
+        .frequency-scale {
+            position: absolute;
+            width: 2000px;
+            height: 60px;
+            top: 20px;
+            background: repeating-linear-gradient(
+                90deg,
+                #fff 0px,
+                #fff 2px,
+                transparent 2px,
+                transparent 20px
+            );
+            transition: transform 0.1s linear;
+        }
+
+        .tuning-needle {
+            position: absolute;
+            width: 2px;
+            height: 100%;
+            background: #ff4500;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2;
+            box-shadow: 0 0 5px rgba(255,69,0,0.7);
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .dial {
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, #d3d3d3, #808080);
+            border-radius: 50%;
+            border: 4px solid #3c2f2f;
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.3), 0 0 10px rgba(0,0,0,0.2);
+            transition: transform 0.1s ease;
+        }
+
+        .dial:hover {
+            transform: scale(1.1);
+        }
+
+        .dial:active {
+            transform: scale(0.95);
+        }
+
+        .dial::after {
+            content: '';
+            position: absolute;
+            width: 12px;
+            height: 40px;
+            background: #3c2f2f;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-radius: 3px;
+        }
+
+        .dial-label {
+            color: white;
+            text-align: center;
+            margin-top: 5px;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            background: #6b4423;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+            border: 2px solid #3c2f2f;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #8b5a2b;
+        }
+
+        .dial-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .excel-upload {
+            margin-top: 20px;
+            text-align: center;
+            color: white;
+        }
+
+        input[type="file"] {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="radio-container">
+        <div class="display-panel">
+            <div class="frequency-display" id="frequencyDisplay" onclick="radio.promptFrequency()">87.0</div>
+            <div class="station-info">
+                <div class="station-name" id="stationName">Select a station</div>
+            </div>
+            <div class="metadata" id="metadata">No metadata available</div>
+        </div>
+        <div class="tuner">
+            <div class="frequency-scale" id="frequencyScale"></div>
+            <div class="tuning-needle"></div>
+        </div>
+        <div class="controls">
+            <div class="dial-container">
+                <div class="dial" id="tuningDial"></div>
+                <div class="dial-label">Tuning</div>
+            </div>
+            <button onclick="radio.playPause()">Play/Pause</button>
+            <div class="dial-container">
+                <div class="dial" id="volumeDial"></div>
+                <div class="dial-label">Volume</div>
+            </div>
+        </div>
+        <div class="excel-upload">
+            <input type="file" id="excelInput" accept=".xlsx" onchange="radio.loadExcel(event)">
+        </div>
+    </div>
+
+    <script>
+        const radio = {
+            stations: [],
+            audio: new Audio(),
+            hls: null,
+            currentStation: null,
+            isPlaying: false,
+            frequencyScale: document.getElementById('frequencyScale'),
+            frequencyDisplay: document.getElementById('frequencyDisplay'),
+            stationName: document.getElementById('stationName'),
+            metadataDisplay: document.getElementById('metadata'),
+            tuningDial: document.getElementById('tuningDial'),
+            volumeDial: document.getElementById('volumeDial'),
+            minFreq: 87,
+            maxFreq: 108,
+            currentFreq: 87,
+            currentVolume: 0.5,
+            tuningAngle: 0,
+            volumeAngle: 0,
+            selectedStations: new Map(),
+            currentTitle: null,
+            currentArtist: null,
+
+            // Load Excel file
+            async loadExcel(event) {
+                const file = event.target.files[0];
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data);
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                this.stations = XLSX.utils.sheet_to_json(sheet);
+                this.selectedStations.clear();
+                this.updateTuner(this.currentFreq);
+            },
+
+            // Check if URL is HLS (.m3u8)
+            isHLS(url) {
+                return url.toLowerCase().endsWith('.m3u8');
+            },
+
+            // Find all stations within tolerance of the current frequency
+            findStationsAtFrequency(freq) {
+                if (!this.stations.length) return [];
+                const tolerance = 0.05;
+                return this.stations.filter(station => {
+                    const stationFreq = parseFloat(station.frequency);
+                    return Math.abs(stationFreq - freq) <= tolerance;
+                });
+            },
+
+            // Stop playback and clean up
+            stopPlayback() {
+                if (this.hls) {
+                    this.hls.destroy();
+                    this.hls = null;
+                }
+                this.audio.pause();
+                this.audio.src = '';
+                this.isPlaying = false;
+                this.currentTitle = null;
+                this.currentArtist = null;
+                this.metadataDisplay.textContent = "No metadata available";
+            },
+
+            // Start playback for a specific station
+            async startPlayback(station) {
+                this.currentStation = station;
+                // Only set textContent if no dropdown exists
+                if (!this.stationName.querySelector('select')) {
+                    this.stationName.textContent = station.name;
+                }
+                const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+                if (!this.currentTitle && !this.currentArtist) {
+                    this.metadataDisplay.textContent = "Loading metadata...";
+                }
+
+                if (this.isHLS(station.url) && !isSafari && Hls.isSupported()) {
+                    this.hls = new Hls();
+                    this.hls.loadSource(station.url);
+                    this.hls.attachMedia(this.audio);
+                    this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        this.audio.play();
+                        this.isPlaying = true;
+                    });
+                    this.hls.on(Hls.Events.FRAG_PARSING_METADATA, (event, data) => {
+                        console.log('FRAG_PARSING_METADATA:', data);
+                        const metadata = data.samples[0]?.data;
+                        if (metadata) {
+                            const text = new TextDecoder().decode(metadata);
+                            console.log('Decoded ID3:', text);
+                            this.parseID3Metadata(metadata);
+                        } else {
+                            console.log('No metadata in fragment');
+                        }
+                    });
+                    this.fetchHLSMetadata(station.url);
+                } else {
+                    this.audio.src = station.url;
+                    this.audio.play();
+                    this.isPlaying = true;
+                    if (this.isHLS(station.url)) {
+                        this.fetchHLSMetadata(station.url);
+                    } else {
+                        this.fetchIcyMetadata(station.url);
+                    }
+                    this.audio.addEventListener('loadedmetadata', () => {
+                        this.parseNativeMetadata();
+                    }, { once: true });
+                }
+            },
+
+            // Parse ID3 metadata from HLS streams
+            parseID3Metadata(metadata) {
+                const data = new Uint8Array(metadata);
+                let offset = 0;
+                let title = null;
+                let artist = null;
+
+                if (data.length < 10 || String.fromCharCode(data[0], data[1], data[2]) !== 'ID3') {
+                    console.log('Invalid ID3 header');
+                    return;
+                }
+                offset = 10;
+
+                while (offset < data.length - 10) {
+                    const frameId = String.fromCharCode(...data.subarray(offset, offset + 4));
+                    if (!frameId.match(/[A-Z0-9]{4}/)) break;
+
+                    offset += 4;
+                    const size = (data[offset] << 21) | (data[offset + 1] << 14) | (data[offset + 2] << 7) | data[offset + 3];
+                    offset += 4;
+                    offset += 2; // Skip flags
+
+                    if (offset + size > data.length) break;
+
+                    const frameData = data.subarray(offset, offset + size);
+                    offset += size;
+
+                    if (frameId === 'TIT2' && frameData.length > 1) {
+                        title = new TextDecoder('utf-8').decode(frameData.subarray(1)).trim();
+                    } else if (frameId === 'TPE1' && frameData.length > 1) {
+                        artist = new TextDecoder('utf-8').decode(frameData.subarray(1)).trim();
+                    } else if (frameId === 'PRIV' && frameData.length > 0) {
+                        const ownerIdEnd = Array.from(frameData).findIndex(byte => byte === 0);
+                        if (ownerIdEnd !== -1) {
+                            const ownerId = new TextDecoder('utf-8').decode(frameData.subarray(0, ownerIdEnd));
+                            if (ownerId === 'amperwave.metadata') {
+                                const jsonData = new TextDecoder('utf-8').decode(frameData.subarray(ownerIdEnd + 1));
+                                try {
+                                    const metadata = JSON.parse(jsonData);
+                                    if (metadata.title && metadata.artist) {
+                                        title = metadata.title.trim() || title;
+                                        artist = metadata.artist.trim() || artist;
+                                    }
+                                } catch (e) {
+                                    console.error('Failed to parse PRIV JSON:', e);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Enhanced entity decoding
+                const decodeEntities = (str) => {
+                    if (!str) return str;
+                    return str
+                        .replace(/&/g, '&')
+                        .replace(/&apos;/g, "'")
+                        .replace(/&quot;/g, '"')
+                        .replace(/&lt;/g, '<')
+                        .replace(/&gt;/g, '>')
+                        .replace(/&amp;/g, '&'); // Must be last to avoid double-decoding
+                };
+
+                title = decodeEntities(title);
+                artist = decodeEntities(artist);
+
+                console.log('Raw ID3 Binary Length:', data.length);
+                console.log('Parsed ID3 - Title:', title, 'Artist:', artist);
+                if (title || artist) {
+                    this.currentTitle = title || this.currentTitle;
+                    this.currentArtist = artist || this.currentArtist;
+                    this.updateMetadataDisplay(this.currentTitle, this.currentArtist);
+                }
+            },
+
+            // Parse metadata from native audio element
+            parseNativeMetadata() {
+                if (this.audio.title || this.audio.artist) {
+                    this.currentTitle = this.audio.title;
+                    this.currentArtist = this.audio.artist;
+                    this.updateMetadataDisplay(this.audio.title, this.audio.artist);
+                }
+            },
+
+            // Fetch HLS metadata from .m3u8 playlist (EXTINF)
+            async fetchHLSMetadata(url) {
+                try {
+                    const response = await fetch(url);
+                    const text = await response.text();
+                    const lines = text.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('#EXTINF')) {
+                            const parts = line.split(',');
+                            if (parts.length > 1) {
+                                const title = parts[1].trim();
+                                const match = title.match(/(.+?)\s*-\s*(.+)/);
+                                if (match) {
+                                    this.currentTitle = match[2];
+                                    this.currentArtist = match[1];
+                                    this.updateMetadataDisplay(match[2], match[1]);
+                                } else {
+                                    this.currentTitle = title;
+                                    this.updateMetadataDisplay(title, null);
+                                }
+                                return;
+                            }
+                        }
+                    }
+                    const variantMatch = lines.find(line => line.includes('.m3u8') && !line.startsWith('#'));
+                    if (variantMatch) {
+                        const variantUrl = new URL(variantMatch.trim(), url).href;
+                        const variantResponse = await fetch(variantUrl);
+                        const variantText = await variantResponse.text();
+                        const variantLines = variantText.split('\n');
+                        for (const line of variantLines) {
+                            if (line.startsWith('#EXTINF')) {
+                                const parts = line.split(',');
+                                if (parts.length > 1) {
+                                    const title = parts[1].trim();
+                                    const match = title.match(/(.+?)\s*-\s*(.+)/);
+                                    if (match) {
+                                        this.currentTitle = match[2];
+                                        this.currentArtist = match[1];
+                                        this.updateMetadataDisplay(match[2], match[1]);
+                                    } else {
+                                        this.currentTitle = title;
+                                        this.updateMetadataDisplay(title, null);
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    if (!this.currentTitle && !this.currentArtist) {
+                        this.metadataDisplay.textContent = "No metadata in playlist";
+                    }
+                } catch (e) {
+                    console.error('HLS metadata fetch failed:', e);
+                    if (!this.currentTitle && !this.currentArtist) {
+                        this.metadataDisplay.textContent = "Metadata fetch error";
+                    }
+                }
+            },
+
+            // Fetch ICY metadata for MP3 streams (placeholder)
+            async fetchIcyMetadata(url) {
+                try {
+                    const response = await fetch(url);
+                    const headers = Object.fromEntries(response.headers);
+                    console.log('ICY Headers for', url, ':', headers);
+
+                    const icyMetaInt = parseInt(response.headers.get('icy-metaint'));
+                    const icyName = response.headers.get('icy-name');
+                    const streamTitle = response.headers.get('ice-audio-info') || icyName; // Prefer ice-audio-info if present
+
+                    if (icyMetaInt && streamTitle) {
+                        const match = streamTitle.match(/StreamTitle='([^']+)'/);
+                        if (match) {
+                            const titleArtist = match[1].split(' - ');
+                            this.currentArtist = titleArtist.length > 1 ? titleArtist[0].trim() : null;
+                            this.currentTitle = titleArtist.length > 1 ? titleArtist[1].trim() : titleArtist[0].trim();
+                            this.updateMetadataDisplay(this.currentTitle, this.currentArtist);
+                            console.log('Parsed ICY title/artist:', this.currentArtist, '-', this.currentTitle);
+                        } else {
+                            this.updateMetadataDisplay(null, null); // Clear title/artist if no StreamTitle
+                            this.metadataDisplay.textContent = icyName || "ICY metadata present but unreadable";
+                            console.log('Fallback to icy-name:', icyName);
+                        }
+                    } else if (icyName) {
+                        this.updateMetadataDisplay(null, null); // Clear title/artist
+                        this.metadataDisplay.textContent = icyName;
+                        console.log('Using icy-name as fallback:', icyName);
+                    } else {
+                        this.metadataDisplay.textContent = "No ICY metadata available";
+                        console.log('No ICY metadata detected');
+                    }
+                } catch (e) {
+                    console.error('ICY metadata fetch failed:', e);
+                    this.metadataDisplay.textContent = "No metadata available";
+                }
+            },
+
+            // Update metadata display
+            updateMetadataDisplay(title, artist) {
+                if (title && artist) {
+                    this.metadataDisplay.textContent = `${artist} - ${title}`;
+                } else if (title) {
+                    this.metadataDisplay.textContent = title;
+                } else if (artist) {
+                    this.metadataDisplay.textContent = artist;
+                } else if (!this.currentTitle && !this.currentArtist) {
+                    this.metadataDisplay.textContent = "No metadata available";
+                }
+            },
+
+            // Update tuner position and station selection
+            updateTuner(freq) {
+                this.currentFreq = Math.max(this.minFreq, Math.min(this.maxFreq, freq));
+                const position = (this.currentFreq - this.minFreq) / (this.maxFreq - this.minFreq);
+                const scaleWidth = 1400;
+                const translateX = -(position * scaleWidth);
+                this.frequencyScale.style.transform = `translateX(${translateX}px)`;
+                this.frequencyDisplay.textContent = this.currentFreq.toFixed(1);
+
+                const stationsAtFreq = this.findStationsAtFrequency(this.currentFreq);
+                console.log('Stations at', this.currentFreq, ':', stationsAtFreq.length, stationsAtFreq.map(s => s.name));
+                if (stationsAtFreq.length > 0) {
+                    if (stationsAtFreq.length === 1) {
+                        if (stationsAtFreq[0] !== this.currentStation) {
+                            this.stationName.innerHTML = stationsAtFreq[0].name;
+                            this.stopPlayback();
+                            this.startPlayback(stationsAtFreq[0]);
+                            this.selectedStations.set(this.currentFreq.toFixed(1), stationsAtFreq[0]);
+                            console.log('Single station set:', stationsAtFreq[0].name);
+                        }
+                    } else {
+                        const select = document.createElement('select');
+                        select.className = 'station-select';
+                        stationsAtFreq.forEach((station, index) => {
+                            const option = document.createElement('option');
+                            option.value = index;
+                            option.textContent = station.name;
+                            select.appendChild(option);
+                        });
+
+                        const selectedStation = this.selectedStations.get(this.currentFreq.toFixed(1)) || stationsAtFreq[0];
+                        select.value = stationsAtFreq.indexOf(selectedStation).toString();
+                        console.log('Dropdown created, selected:', selectedStation.name, 'value:', select.value);
+
+                        this.stationName.innerHTML = '';
+                        this.stationName.appendChild(select);
+
+                        select.onchange = () => {
+                            const newStation = stationsAtFreq[select.value];
+                            this.selectedStations.set(this.currentFreq.toFixed(1), newStation);
+                            this.stopPlayback();
+                            this.startPlayback(newStation);
+                            this.stationName.innerHTML = '';
+                            this.stationName.appendChild(select);
+                            console.log('Dropdown changed to:', newStation.name);
+                        };
+                        select.focus();
+                        console.log('Dropdown initialized and focused');
+
+                        if (selectedStation !== this.currentStation) {
+                            this.stopPlayback();
+                            this.startPlayback(selectedStation);
+                            console.log('Initial station playback:', selectedStation.name);
+                        }
+                    }
+                } else {
+                    this.currentStation = null;
+                    this.stationName.innerHTML = "No Signal";
+                    this.stopPlayback();
+                    console.log('No stations at frequency');
+                }
+                console.log('stationName content:', this.stationName.innerHTML);
+            },
+
+            // Update volume
+            updateVolume(volume) {
+                this.currentVolume = Math.max(0, Math.min(1, volume));
+                this.audio.volume = this.currentVolume;
+            },
+
+            // Play/Pause functionality
+            playPause() {
+                if (!this.currentStation) {
+                    this.stopPlayback();
+                    return;
+                }
+                if (this.isPlaying) {
+                    this.audio.pause();
+                    this.isPlaying = false;
+                } else {
+                    this.audio.play();
+                    this.isPlaying = true;
+                }
+            },
+
+            // Prompt for frequency input
+            promptFrequency() {
+                const input = prompt("Enter frequency (87-108 MHz):", this.currentFreq);
+                if (input !== null) {
+                    const freq = parseFloat(input);
+                    if (!isNaN(freq) && freq >= this.minFreq && freq <= this.maxFreq) {
+                        this.updateTuner(freq);
+                        this.tuningAngle = ((freq - this.minFreq) / (this.maxFreq - this.minFreq)) * 360 - 180;
+                        this.tuningDial.style.transform = `rotate(${this.tuningAngle}deg)`;
+                    }
+                }
+            },
+
+            // Setup rotating dial
+            setupDial(dial, updateFn, angleProp, minValue, maxValue, sensitivity) {
+                let isDragging = false;
+                let startY;
+
+                dial.addEventListener('mousedown', (e) => {
+                    isDragging = true;
+                    startY = e.clientY;
+                    e.preventDefault();
+                });
+
+                document.addEventListener('mouseup', () => {
+                    isDragging = false;
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (isDragging) {
+                        const deltaY = (startY - e.clientY) * sensitivity;
+                        this[angleProp] = Math.max(-180, Math.min(180, this[angleProp] + deltaY));
+                        dial.style.transform = `rotate(${this[angleProp]}deg)`;
+                        const value = minValue + ((this[angleProp] + 180) / 360) * (maxValue - minValue);
+                        updateFn(value);
+                        startY = e.clientY;
+                    }
+                });
+
+                dial.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY * -0.1;
+                    this[angleProp] = Math.max(-180, Math.min(180, this[angleProp] + delta));
+                    dial.style.transform = `rotate(${this[angleProp]}deg)`;
+                    const value = minValue + ((this[angleProp] + 180) / 360) * (maxValue - minValue);
+                    updateFn(value);
+                });
+
+                dial.addEventListener('touchstart', (e) => {
+                    isDragging = true;
+                    startY = e.touches[0].clientY;
+                    e.preventDefault();
+                });
+
+                document.addEventListener('touchend', () => {
+                    isDragging = false;
+                });
+
+                document.addEventListener('touchmove', (e) => {
+                    if (isDragging) {
+                        const touchY = e.touches[0].clientY;
+                        const deltaY = (startY - touchY) * sensitivity;
+                        this[angleProp] = Math.max(-180, Math.min(180, this[angleProp] + deltaY));
+                        dial.style.transform = `rotate(${this[angleProp]}deg)`;
+                        const value = minValue + ((this[angleProp] + 180) / 360) * (maxValue - minValue);
+                        updateFn(value);
+                        startY = touchY;
+                    }
+                });
+            }
+        };
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowLeft':
+                    radio.updateTuner(radio.currentFreq - 0.1);
+                    radio.tuningAngle = Math.max(-180, Math.min(180, radio.tuningAngle - 1));
+                    radio.tuningDial.style.transform = `rotate(${radio.tuningAngle}deg)`;
+                    break;
+                case 'ArrowRight':
+                    radio.updateTuner(radio.currentFreq + 0.1);
+                    radio.tuningAngle = Math.max(-180, Math.min(180, radio.tuningAngle + 1));
+                    radio.tuningDial.style.transform = `rotate(${radio.tuningAngle}deg)`;
+                    break;
+                case 'ArrowUp':
+                    radio.updateVolume(radio.currentVolume + 0.05);
+                    radio.volumeAngle = Math.max(-180, Math.min(180, radio.volumeAngle + 5));
+                    radio.volumeDial.style.transform = `rotate(${radio.volumeAngle}deg)`;
+                    break;
+                case 'ArrowDown':
+                    radio.updateVolume(radio.currentVolume - 0.05);
+                    radio.volumeAngle = Math.max(-180, Math.min(180, radio.volumeAngle - 5));
+                    radio.volumeDial.style.transform = `rotate(${radio.volumeAngle}deg)`;
+                    break;
+                case ' ':
+                    e.preventDefault();
+                    radio.playPause();
+                    break;
+            }
+        });
+
+        // Initialize
+        window.onload = () => {
+            radio.audio.volume = radio.currentVolume;
+            radio.updateTuner(radio.minFreq);
+
+            radio.setupDial(radio.tuningDial, (freq) => {
+                radio.updateTuner(freq);
+            }, 'tuningAngle', radio.minFreq, radio.maxFreq, 0.5);
+
+            radio.setupDial(radio.volumeDial, (volume) => {
+                radio.updateVolume(volume);
+            }, 'volumeAngle', 0, 1, 0.5);
+
+            radio.tuningDial.style.transform = `rotate(${radio.tuningAngle}deg)`;
+            radio.volumeDial.style.transform = `rotate(${(radio.currentVolume * 360) - 180}deg)`;
+        };
+    </script>
+</body>
+</html>
